@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ドット絵メーカー</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #f0f0f0;
+        }
+
+        #control-panel {
+            background-color: #e0e0e0;
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        #setting-panel {
+            background-color: #f8f8f8;
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .setting-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .setting-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        #main-area {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        #canvas-container {
+            flex: 1;
+            overflow: auto;
+            background-color: gray;
+            display: flex;
+            justify-content: center; /* 初期状態では中央寄せ */
+            align-items: center;
+        }
+
+        canvas {
+            background-color: #fff;
+            background-image: 
+                linear-gradient(45deg, #ccc 25%, transparent 25%), 
+                linear-gradient(-45deg, #ccc 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #ccc 75%), 
+                linear-gradient(-45deg, transparent 75%, #ccc 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            image-rendering: pixelated; /* ドット絵をくっきり表示 */
+            cursor: crosshair;
+        }
+
+        #save-area {
+            padding: 10px;
+            background-color: #e0e0e0;
+            text-align: center;
+        }
+
+        button {
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        input[type="range"] {
+            width: 150px;
+        }
+
+        /* モーダル (カメラ用) */
+        #camera-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        #camera-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        video {
+            max-width: 100%;
+            max-height: 80vh;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="control-panel">
+        <button id="btn-load">画像を読み込む</button>
+        <input type="file" id="file-input" accept="image/*" style="display: none;">
+        <button id="btn-camera">カメラで撮影</button>
+        <button id="btn-crop">選択範囲でトリミング</button>
+        <button id="btn-undo" disabled>↶</button>
+        <button id="btn-redo" disabled>↷</button>
+        
+        <div style="display: flex; align-items: center; gap: 5px; margin-left: 10px;">
+            <button id="btn-zoom-out">－</button>
+            <span id="lbl-zoom">100%</span>
+            <button id="btn-zoom-in">＋</button>
+        </div>
+    </div>
+
+    <div id="setting-panel">
+        <div class="setting-group">
+            <div class="setting-item">
+                <label>ドットの粗さ:</label>
+                <input type="range" id="slider-pixel-size" min="1" max="50" value="10">
+                <span id="val-pixel-size">10</span>
+            </div>
+            <div class="setting-item">
+                <label>色数 (Custom時):</label>
+                <input type="range" id="slider-colors" min="2" max="64" value="16">
+                <span id="val-colors">16</span>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <div class="setting-item">
+                <label>コントラスト:</label>
+                <input type="range" id="slider-contrast" min="0.5" max="2.0" step="0.1" value="1.0">
+                <span id="val-contrast">1.0</span>
+            </div>
+            <div class="setting-item">
+                <label>彩度:</label>
+                <input type="range" id="slider-saturation" min="0.0" max="2.0" step="0.1" value="1.0">
+                <span id="val-saturation">1.0</span>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <div class="setting-item">
+                <label>パレット:</label>
+                <select id="combo-palette">
+                    <option value="Custom">Custom</option>
+                    <option value="GameBoy">GameBoy</option>
+                    <option value="Monochrome">Monochrome</option>
+                    <option value="Sepia">Sepia</option>
+                </select>
+            </div>
+            <div class="setting-item">
+                <label><input type="checkbox" id="chk-edge"> 輪郭線強調</label>
+            </div>
+            <div class="setting-item">
+                <label><input type="checkbox" id="chk-grid"> グリッド線</label>
+            </div>
+        </div>
+    </div>
+
+    <div id="main-area">
+        <div id="canvas-container">
+            <canvas id="main-canvas"></canvas>
+        </div>
+        <div id="save-area">
+            <select id="save-format" style="height: 40px; font-size: 1em;">
+                <option value="image/png">PNG</option>
+                <option value="image/jpeg">JPEG</option>
+                <option value="image/webp">WebP</option>
+            </select>
+            <button id="btn-save" style="width: 200px; height: 40px; font-size: 1.1em;">画像を保存</button>
+        </div>
+    </div>
+
+    <!-- カメラモーダル -->
+    <div id="camera-modal">
+        <div id="camera-content">
+            <h3>カメラ撮影 (Spaceキーで撮影)</h3>
+            <video id="camera-video" autoplay playsinline></video>
+            <br>
+            <button id="btn-capture">撮影</button>
+            <button id="btn-camera-close">閉じる</button>
+        </div>
+    </div>
+
+    <script>
+class PixelArtConverter {
+    static PALETTES = {
+        "Custom": null,
+        "GameBoy": [
+            [15, 56, 15],   // 最も暗い緑
+            [48, 98, 48],   // 暗い緑
+            [139, 172, 15], // 明るい緑
+            [155, 188, 15]  // 最も明るい緑
+        ],
+        "Monochrome": [
+            [0, 0, 0],      // 黒
+            [255, 255, 255] // 白
+        ],
+        "Sepia": [
+            [94, 38, 18],   // 暗い茶
+            [160, 82, 45],  // 茶
+            [210, 180, 140], // 薄茶
+            [255, 248, 220] // クリーム
+        ]
+    };
+
+    static applyPalette(imgData, palette) {
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            // 透明ピクセルはスキップ
+            if (data[i + 3] === 0) continue;
+
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            // alpha data[i+3] is ignored for distance but preserved
+
+            let minDist = Infinity;
+            let nearestColor = palette[0];
+
+            for (const color of palette) {
+                const dr = r - color[0];
+                const dg = g - color[1];
+                const db = b - color[2];
+                const dist = dr * dr + dg * dg + db * db;
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearestColor = color;
+                }
+            }
+
+            data[i] = nearestColor[0];
+            data[i + 1] = nearestColor[1];
+            data[i + 2] = nearestColor[2];
+        }
+    }
+
+    static kMeans(imgData, k) {
+        const data = imgData.data;
+        const pixelCount = data.length / 4;
+        
+        if (pixelCount === 0) return;
+
+        // 有効な（透明でない）ピクセルのインデックスを収集
+        const validIndices = [];
+        for (let i = 0; i < pixelCount; i++) {
+            if (data[i * 4 + 3] > 0) {
+                validIndices.push(i);
+            }
+        }
+
+        if (validIndices.length === 0) return;
+
+        // 高速化のため、サンプリングしてクラスタリングを行う
+        // 全ピクセルを使うと重すぎるため、最大3000ピクセル程度を抽出
+        const sampleSize = Math.min(validIndices.length, 3000);
+        const samples = new Uint8Array(sampleSize * 3);
+        
+        // ランダムサンプリング
+        for (let i = 0; i < sampleSize; i++) {
+            // validIndicesからランダムに選ぶ（重複許容で簡易的に）
+            // あるいはシャッフルして先頭から取るのが正確だが、ランダムアクセスで十分
+            const randIdx = Math.floor(Math.random() * validIndices.length);
+            const pixelIdx = validIndices[randIdx];
+            
+            samples[i * 3] = data[pixelIdx * 4];
+            samples[i * 3 + 1] = data[pixelIdx * 4 + 1];
+            samples[i * 3 + 2] = data[pixelIdx * 4 + 2];
+        }
+
+        // 初期セントロイド (サンプルからランダムに選択)
+        let centroids = [];
+        for (let i = 0; i < k; i++) {
+            const idx = Math.floor(Math.random() * sampleSize);
+            centroids.push([samples[idx * 3], samples[idx * 3 + 1], samples[idx * 3 + 2]]);
+        }
+
+        const maxIter = 10;
+        for (let iter = 0; iter < maxIter; iter++) {
+            const sums = Array(k).fill(0).map(() => [0, 0, 0]);
+            const counts = Array(k).fill(0);
+
+            // サンプルデータに対して割り当て
+            for (let i = 0; i < sampleSize; i++) {
+                const r = samples[i * 3];
+                const g = samples[i * 3 + 1];
+                const b = samples[i * 3 + 2];
+                
+                let minDist = Infinity;
+                let clusterIdx = 0;
+
+                for (let j = 0; j < k; j++) {
+                    const c = centroids[j];
+                    const dist = (r - c[0]) ** 2 + (g - c[1]) ** 2 + (b - c[2]) ** 2;
+                    if (dist < minDist) {
+                        minDist = dist;
+                        clusterIdx = j;
+                    }
+                }
+                sums[clusterIdx][0] += r;
+                sums[clusterIdx][1] += g;
+                sums[clusterIdx][2] += b;
+                counts[clusterIdx]++;
+            }
+
+            // セントロイド更新
+            let changed = false;
+            for (let j = 0; j < k; j++) {
+                if (counts[j] > 0) {
+                    const newC = [
+                        sums[j][0] / counts[j],
+                        sums[j][1] / counts[j],
+                        sums[j][2] / counts[j]
+                    ];
+                    if (Math.abs(newC[0] - centroids[j][0]) > 1 || 
+                        Math.abs(newC[1] - centroids[j][1]) > 1 || 
+                        Math.abs(newC[2] - centroids[j][2]) > 1) {
+                        changed = true;
+                    }
+                    centroids[j] = newC;
+                }
+            }
+            if (!changed) break;
+        }
+
+        // 全ピクセルに対して色を適用
+        for (let i = 0; i < pixelCount; i++) {
+            // 透明ピクセルはスキップ
+            if (data[i * 4 + 3] === 0) continue;
+
+            const r = data[i * 4];
+            const g = data[i * 4 + 1];
+            const b = data[i * 4 + 2];
+            
+            let minDist = Infinity;
+            let nearestC = centroids[0];
+            for(let j=0; j<k; j++){
+                const c = centroids[j];
+                const dist = (r - c[0]) ** 2 + (g - c[1]) ** 2 + (b - c[2]) ** 2;
+                if(dist < minDist){
+                    minDist = dist;
+                    nearestC = c;
+                }
+            }
+            
+            data[i * 4] = nearestC[0];
+            data[i * 4 + 1] = nearestC[1];
+            data[i * 4 + 2] = nearestC[2];
+        }
+    }
+
+    static edgeDetection(imgData) {
+        const w = imgData.width;
+        const h = imgData.height;
+        const data = imgData.data;
+        const gray = new Uint8Array(w * h);
+
+        // グレースケール化
+        for (let i = 0; i < w * h; i++) {
+            const r = data[i * 4];
+            const g = data[i * 4 + 1];
+            const b = data[i * 4 + 2];
+            gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+        }
+
+        // 簡易エッジ検出 (ラプラシアンフィルタ的なもの、あるいはSobel)
+        // ここではシンプルに隣接画素との差分を見る
+        const threshold = 30;
+        const edges = new Uint8Array(w * h); // 1 if edge
+
+        for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+                const idx = y * w + x;
+                const val = gray[idx];
+                
+                // 上下左右との差
+                const d1 = Math.abs(val - gray[idx - 1]);
+                const d2 = Math.abs(val - gray[idx + 1]);
+                const d3 = Math.abs(val - gray[idx - w]);
+                const d4 = Math.abs(val - gray[idx + w]);
+                
+                if (d1 + d2 + d3 + d4 > threshold * 2) { // 閾値は適当
+                    edges[idx] = 1;
+                }
+            }
+        }
+
+        // エッジ部分を黒にする
+        for (let i = 0; i < w * h; i++) {
+            if (edges[i]) {
+                data[i * 4] = 0;
+                data[i * 4 + 1] = 0;
+                data[i * 4 + 2] = 0;
+            }
+        }
+    }
+
+    static convert(image, settings) {
+        const { pixelSize, nColors, contrast, saturation, paletteMode, edgeEnhancement, gridLine } = settings;
+        
+        // 0. 前処理用キャンバス
+        const w = image.width;
+        const h = image.height;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0);
+        
+        let imgData = ctx.getImageData(0, 0, w, h);
+        let data = imgData.data;
+
+        // コントラスト・彩度調整
+        // Contrast
+        if (contrast !== 1.0) {
+            const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255)); // 一般的な式
+            // PythonのImageEnhance.Contrastは平均輝度からの偏差をスケーリングするが、
+            // ここでは簡易的な式を使用するか、平均輝度ベースにするか。
+            // Pythonの挙動に近づけるため、平均値(128)中心で考える
+            for (let i = 0; i < data.length; i += 4) {
+                data[i] = 128 + (data[i] - 128) * contrast;
+                data[i+1] = 128 + (data[i+1] - 128) * contrast;
+                data[i+2] = 128 + (data[i+2] - 128) * contrast;
+                // Clamp
+                data[i] = Math.min(255, Math.max(0, data[i]));
+                data[i+1] = Math.min(255, Math.max(0, data[i+1]));
+                data[i+2] = Math.min(255, Math.max(0, data[i+2]));
+            }
+        }
+
+        // Saturation
+        if (saturation !== 1.0) {
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i+1], b = data[i+2];
+                const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                data[i] = gray + (r - gray) * saturation;
+                data[i+1] = gray + (g - gray) * saturation;
+                data[i+2] = gray + (b - gray) * saturation;
+                // Clamp
+                data[i] = Math.min(255, Math.max(0, data[i]));
+                data[i+1] = Math.min(255, Math.max(0, data[i+1]));
+                data[i+2] = Math.min(255, Math.max(0, data[i+2]));
+            }
+        }
+        ctx.putImageData(imgData, 0, 0);
+
+        // 1. 縮小 (モザイク化)
+        const smallW = Math.max(1, Math.floor(w / pixelSize));
+        const smallH = Math.max(1, Math.floor(h / pixelSize));
+        
+        const smallCanvas = document.createElement('canvas');
+        smallCanvas.width = smallW;
+        smallCanvas.height = smallH;
+        const smallCtx = smallCanvas.getContext('2d');
+        
+        // 画質を落として描画 (Nearest Neighborに近い効果を得るため、あるいは平均化)
+        // PythonのImage.BOXは平均化縮小。ブラウザの縮小はバイリニアが主。
+        // 正確にやるなら自分で平均化するが、ここではブラウザ任せにする
+        smallCtx.drawImage(canvas, 0, 0, smallW, smallH);
+        
+        let smallImgData = smallCtx.getImageData(0, 0, smallW, smallH);
+
+        // アルファ値の2値化 (半透明をなくす)
+        for (let i = 0; i < smallImgData.data.length; i += 4) {
+            if (smallImgData.data[i + 3] < 128) {
+                smallImgData.data[i + 3] = 0; // 完全透明
+            } else {
+                smallImgData.data[i + 3] = 255; // 完全不透明
+            }
+        }
+
+        // 2. 減色処理
+        const palette = this.PALETTES[paletteMode];
+        if (palette) {
+            this.applyPalette(smallImgData, palette);
+        } else {
+            // Custom (K-means)
+            this.kMeans(smallImgData, nColors);
+        }
+
+        // 3. 輪郭線強調
+        if (edgeEnhancement) {
+            this.edgeDetection(smallImgData);
+        }
+
+        smallCtx.putImageData(smallImgData, 0, 0);
+
+        // 4. 拡大 (ドットとして表示)
+        // 最終的な表示用キャンバスを作成するのではなく、
+        // ここでは「処理済み画像」として返す。
+        // 拡大は表示時に行うか、ここで拡大した画像を返すか。
+        // Pythonコードでは拡大した画像を返している。
+        const resultCanvas = document.createElement('canvas');
+        resultCanvas.width = w;
+        resultCanvas.height = h;
+        const resultCtx = resultCanvas.getContext('2d');
+        resultCtx.imageSmoothingEnabled = false; // Nearest Neighbor
+        resultCtx.drawImage(smallCanvas, 0, 0, w, h);
+
+        // 5. グリッド線
+        if (gridLine) {
+            resultCtx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+            resultCtx.lineWidth = 1;
+            resultCtx.beginPath();
+            
+            const stepY = h / smallH;
+            for (let i = 1; i < smallH; i++) {
+                const y = Math.floor(i * stepY);
+                resultCtx.moveTo(0, y);
+                resultCtx.lineTo(w, y);
+            }
+            
+            const stepX = w / smallW;
+            for (let i = 1; i < smallW; i++) {
+                const x = Math.floor(i * stepX);
+                resultCtx.moveTo(x, 0);
+                resultCtx.lineTo(x, h);
+            }
+            resultCtx.stroke();
+        }
+
+        return resultCanvas;
+    }
+}
+
+class App {
+    constructor() {
+        // 状態変数
+        this.originalImage = null; // Image Object
+        this.processedCanvas = null; // Canvas
+        this.zoomScale = 1.0;
+        
+        this.history = [];
+        this.future = [];
+        this.currentState = null;
+
+        this.cropCoords = null; // {x1, y1, x2, y2} (Image coordinates)
+        this.dragMode = null;
+        this.lastMousePos = null;
+
+        // UI要素
+        this.canvas = document.getElementById('main-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        
+        // 設定値
+        this.settings = {
+            pixelSize: 10,
+            nColors: 16,
+            contrast: 1.0,
+            saturation: 1.0,
+            paletteMode: 'Custom',
+            edgeEnhancement: false,
+            gridLine: false
+        };
+
+        this.bindEvents();
+        this.updateButtonStates();
+    }
+
+    init() {
+        // 初期化処理
+    }
+
+    bindEvents() {
+        // Load
+        document.getElementById('btn-load').onclick = () => document.getElementById('file-input').click();
+        document.getElementById('file-input').onchange = (e) => this.loadFile(e.target.files[0]);
+        
+        // Camera
+        document.getElementById('btn-camera').onclick = () => this.openCamera();
+        document.getElementById('btn-capture').onclick = () => this.captureCamera();
+        document.getElementById('btn-camera-close').onclick = () => this.closeCamera();
+        
+        // Crop
+        document.getElementById('btn-crop').onclick = () => this.cropImage();
+
+        // Undo/Redo
+        document.getElementById('btn-undo').onclick = () => this.undo();
+        document.getElementById('btn-redo').onclick = () => this.redo();
+
+        // Zoom
+        document.getElementById('btn-zoom-in').onclick = () => this.zoomIn();
+        document.getElementById('btn-zoom-out').onclick = () => this.zoomOut();
+
+        // Save
+        document.getElementById('btn-save').onclick = () => this.saveImage();
+
+        // Sliders & Inputs
+        const bindSlider = (id, key, type = 'int') => {
+            const el = document.getElementById(id);
+            const valEl = document.getElementById(id.replace('slider-', 'val-'));
+            
+            // スライダーはinputイベントでリアルタイム更新
+            el.addEventListener('input', () => {
+                let val = type === 'float' ? parseFloat(el.value) : parseInt(el.value);
+                this.settings[key] = val;
+                if (valEl) valEl.textContent = val;
+                this.updatePreview();
+            });
+
+            // changeイベントで履歴保存
+            el.addEventListener('change', () => {
+                this.saveCurrentStateToHistory();
+            });
+        };
+
+        const bindCheckbox = (id, key) => {
+            const el = document.getElementById(id);
+            
+            el.addEventListener('change', () => {
+                this.settings[key] = el.checked;
+                this.updatePreview();
+                this.saveCurrentStateToHistory();
+            });
+        };
+
+        const bindSelect = (id, key) => {
+            const el = document.getElementById(id);
+            
+            el.addEventListener('change', () => {
+                this.settings[key] = el.value;
+                
+                // 色数スライダーの有効無効
+                if (key === 'paletteMode') {
+                    document.getElementById('slider-colors').disabled = (el.value !== 'Custom');
+                }
+                
+                this.updatePreview();
+                this.saveCurrentStateToHistory();
+            });
+        };
+
+        bindSlider('slider-pixel-size', 'pixelSize');
+        bindSlider('slider-colors', 'nColors');
+        bindSlider('slider-contrast', 'contrast', 'float');
+        bindSlider('slider-saturation', 'saturation', 'float');
+        bindSelect('combo-palette', 'paletteMode');
+        bindCheckbox('chk-edge', 'edgeEnhancement');
+        bindCheckbox('chk-grid', 'gridLine');
+
+        // Canvas Mouse Events (Crop)
+        this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
+        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        window.addEventListener('mouseup', (e) => this.onMouseUp(e));
+
+        // Touch Events (Pinch Zoom)
+        this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
+        this.canvas.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
+        this.canvas.addEventListener('touchend', (e) => this.onTouchEnd(e));
+
+        // Wheel Event (Trackpad Pinch / Mouse Wheel Zoom)
+        this.canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+
+        // ピンチ操作用の状態
+        this.lastPinchDistance = null;
+        this.isPinching = false;
+    }
+
+    loadFile(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                this.setImage(img);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    setImage(img) {
+        this.originalImage = img;
+        this.cropCoords = null;
+        this.history = [];
+        this.future = [];
+        this.currentState = this.getState();
+        this.updatePreview();
+        this.updateButtonStates();
+    }
+
+    getState() {
+        // 画像データは重いので、src(DataURL)を保存するか、Imageオブジェクトを保存するか。
+        // Python版はImageオブジェクトをコピーしていた。
+        // JSではImageオブジェクトのsrcを保存するのが手軽。
+        // ただし、トリミングで画像が変わるので、その時点の画像データが必要。
+        
+        // 現在のoriginalImageのコピーを作成
+        let imgCopy = null;
+        if (this.originalImage) {
+            const c = document.createElement('canvas');
+            c.width = this.originalImage.width;
+            c.height = this.originalImage.height;
+            c.getContext('2d').drawImage(this.originalImage, 0, 0);
+            imgCopy = c.toDataURL();
+        }
+
+        return {
+            imageSrc: imgCopy,
+            settings: { ...this.settings },
+            zoomScale: this.zoomScale
+        };
+    }
+
+    applyState(state) {
+        if (!state) return;
+        
+        // 設定復元
+        this.settings = { ...state.settings };
+        this.zoomScale = state.zoomScale || 1.0;
+        
+        // UI反映
+        document.getElementById('slider-pixel-size').value = this.settings.pixelSize;
+        document.getElementById('val-pixel-size').textContent = this.settings.pixelSize;
+        document.getElementById('slider-colors').value = this.settings.nColors;
+        document.getElementById('val-colors').textContent = this.settings.nColors;
+        document.getElementById('slider-contrast').value = this.settings.contrast;
+        document.getElementById('val-contrast').textContent = this.settings.contrast;
+        document.getElementById('slider-saturation').value = this.settings.saturation;
+        document.getElementById('val-saturation').textContent = this.settings.saturation;
+        document.getElementById('combo-palette').value = this.settings.paletteMode;
+        document.getElementById('chk-edge').checked = this.settings.edgeEnhancement;
+        document.getElementById('chk-grid').checked = this.settings.gridLine;
+        
+        document.getElementById('lbl-zoom').textContent = `${Math.floor(this.zoomScale * 100)}%`;
+        document.getElementById('slider-colors').disabled = (this.settings.paletteMode !== 'Custom');
+
+        // 画像復元
+        if (state.imageSrc) {
+            const img = new Image();
+            img.onload = () => {
+                this.originalImage = img;
+                this.updatePreview();
+            };
+            img.src = state.imageSrc;
+        } else {
+            this.originalImage = null;
+            this.updatePreview();
+        }
+        
+        this.updateButtonStates();
+    }
+
+    saveCurrentStateToHistory() {
+        const newState = this.getState();
+        // 変更判定 (簡易)
+        if (JSON.stringify(this.currentState) !== JSON.stringify(newState)) {
+            if (this.currentState) this.history.push(this.currentState);
+            this.currentState = newState;
+            this.future = [];
+            if (this.history.length > 10) this.history.shift();
+            this.updateButtonStates();
+        }
+    }
+
+    undo() {
+        if (this.history.length === 0) return;
+        this.future.push(this.currentState);
+        const prevState = this.history.pop();
+        this.currentState = prevState;
+        this.applyState(prevState);
+    }
+
+    redo() {
+        if (this.future.length === 0) return;
+        this.history.push(this.currentState);
+        const nextState = this.future.pop();
+        this.currentState = nextState;
+        this.applyState(nextState);
+    }
+
+    updateButtonStates() {
+        document.getElementById('btn-undo').disabled = this.history.length === 0;
+        document.getElementById('btn-redo').disabled = this.future.length === 0;
+    }
+
+    updatePreview() {
+        if (!this.originalImage) return;
+
+        // 変換処理
+        this.processedCanvas = PixelArtConverter.convert(this.originalImage, this.settings);
+        
+        this.drawCanvas();
+    }
+
+    drawCanvas() {
+        if (!this.processedCanvas) return;
+
+        const w = this.processedCanvas.width;
+        const h = this.processedCanvas.height;
+        
+        const displayW = Math.floor(w * this.zoomScale);
+        const displayH = Math.floor(h * this.zoomScale);
+        
+        this.canvas.width = displayW;
+        this.canvas.height = displayH;
+        
+        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.drawImage(this.processedCanvas, 0, 0, displayW, displayH);
+        
+        this.drawCropUI();
+    }
+
+    zoomIn() {
+        this.zoomScale *= 1.25;
+        this.updateZoomUI();
+    }
+
+    zoomOut() {
+        this.zoomScale /= 1.25;
+        this.updateZoomUI();
+    }
+
+    updateZoomUI() {
+        document.getElementById('lbl-zoom').textContent = `${Math.floor(this.zoomScale * 100)}%`;
+        this.drawCanvas();
+        this.saveCurrentStateToHistory();
+    }
+
+    // --- Camera ---
+    openCamera() {
+        const modal = document.getElementById('camera-modal');
+        const video = document.getElementById('camera-video');
+        modal.style.display = 'flex';
+        
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                this.cameraStream = stream;
+            })
+            .catch(err => {
+                alert("カメラが見つかりません: " + err);
+                modal.style.display = 'none';
+            });
+    }
+
+    closeCamera() {
+        const modal = document.getElementById('camera-modal');
+        modal.style.display = 'none';
+        if (this.cameraStream) {
+            this.cameraStream.getTracks().forEach(track => track.stop());
+        }
+    }
+
+    captureCamera() {
+        const video = document.getElementById('camera-video');
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            
+            const img = new Image();
+            img.onload = () => this.setImage(img);
+            img.src = canvas.toDataURL('image/png');
+            
+            this.closeCamera();
+        }
+    }
+
+    // --- Crop ---
+    drawCropUI() {
+        if (!this.cropCoords) return;
+        
+        const { x1, y1, x2, y2 } = this.cropCoords;
+        const z = this.zoomScale;
+        
+        // Canvas座標
+        const cx1 = x1 * z;
+        const cy1 = y1 * z;
+        const cx2 = x2 * z;
+        const cy2 = y2 * z;
+        
+        const left = Math.min(cx1, cx2);
+        const top = Math.min(cy1, cy2);
+        const width = Math.abs(cx1 - cx2);
+        const height = Math.abs(cy1 - cy2);
+        
+        this.ctx.strokeStyle = 'red';
+        this.ctx.lineWidth = 2;
+        this.ctx.setLineDash([4, 4]);
+        this.ctx.strokeRect(left, top, width, height);
+        this.ctx.setLineDash([]);
+        
+        // Handles
+        const handles = this.getHandleCoords(left, top, left+width, top+height);
+        this.ctx.fillStyle = 'white';
+        this.ctx.strokeStyle = 'black';
+        this.ctx.lineWidth = 1;
+        
+        for (const h of Object.values(handles)) {
+            this.ctx.fillRect(h.x - 4, h.y - 4, 8, 8);
+            this.ctx.strokeRect(h.x - 4, h.y - 4, 8, 8);
+        }
+    }
+
+    getHandleCoords(left, top, right, bottom) {
+        const midX = (left + right) / 2;
+        const midY = (top + bottom) / 2;
+        return {
+            nw: { x: left, y: top },
+            n:  { x: midX, y: top },
+            ne: { x: right, y: top },
+            e:  { x: right, y: midY },
+            se: { x: right, y: bottom },
+            s:  { x: midX, y: bottom },
+            sw: { x: left, y: bottom },
+            w:  { x: left, y: midY }
+        };
+    }
+
+    getHitHandle(mx, my) {
+        if (!this.cropCoords) return null;
+        const { x1, y1, x2, y2 } = this.cropCoords;
+        const z = this.zoomScale;
+        const left = Math.min(x1, x2) * z;
+        const top = Math.min(y1, y2) * z;
+        const right = Math.max(x1, x2) * z;
+        const bottom = Math.max(y1, y2) * z;
+        
+        const handles = this.getHandleCoords(left, top, right, bottom);
+        
+        for (const [key, h] of Object.entries(handles)) {
+            if (Math.abs(mx - h.x) <= 6 && Math.abs(my - h.y) <= 6) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    onMouseDown(e) {
+        if (!this.originalImage) return;
+        
+        const rect = this.canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        
+        const hit = this.getHitHandle(mx, my);
+        if (hit) {
+            this.dragMode = hit;
+        } else if (this.cropCoords) {
+            // Check inside
+            const z = this.zoomScale;
+            const x1 = Math.min(this.cropCoords.x1, this.cropCoords.x2) * z;
+            const y1 = Math.min(this.cropCoords.y1, this.cropCoords.y2) * z;
+            const x2 = Math.max(this.cropCoords.x1, this.cropCoords.x2) * z;
+            const y2 = Math.max(this.cropCoords.y1, this.cropCoords.y2) * z;
+            
+            if (mx >= x1 && mx <= x2 && my >= y1 && my <= y2) {
+                this.dragMode = 'move';
+            } else {
+                // Start new crop
+                this.cropCoords = { x1: mx/z, y1: my/z, x2: mx/z, y2: my/z };
+                this.dragMode = 'create';
+            }
+        } else {
+            // Start new crop
+            const z = this.zoomScale;
+            this.cropCoords = { x1: mx/z, y1: my/z, x2: mx/z, y2: my/z };
+            this.dragMode = 'create';
+        }
+        
+        this.lastMousePos = { x: mx, y: my };
+        this.drawCanvas();
+    }
+
+    onMouseMove(e) {
+        if (!this.dragMode || !this.cropCoords) return;
+        
+        const rect = this.canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        
+        const z = this.zoomScale;
+        const dx = (mx - this.lastMousePos.x) / z;
+        const dy = (my - this.lastMousePos.y) / z;
+        
+        if (this.dragMode === 'create') {
+            this.cropCoords.x2 = mx / z;
+            this.cropCoords.y2 = my / z;
+        } else if (this.dragMode === 'move') {
+            this.cropCoords.x1 += dx;
+            this.cropCoords.y1 += dy;
+            this.cropCoords.x2 += dx;
+            this.cropCoords.y2 += dy;
+        } else {
+            // Handle resizing
+            // 簡易実装: 対角を固定して操作点を動かす
+            // 本来は正規化してから処理すべきだが、ここでは単純に
+            // Python版のロジックを模倣
+            // Python版は正規化してから各ハンドルごとに処理している
+            
+            // ここでは簡略化のため、createと同じように座標を直接いじる
+            // ただし、x1, y1, x2, y2のどれを動かすか判定が必要
+            // 面倒なので、正規化済みの left, top, right, bottom を管理する形に変形したほうが楽だが
+            // 既存構造維持
+            
+            // 正規化
+            let left = Math.min(this.cropCoords.x1, this.cropCoords.x2);
+            let right = Math.max(this.cropCoords.x1, this.cropCoords.x2);
+            let top = Math.min(this.cropCoords.y1, this.cropCoords.y2);
+            let bottom = Math.max(this.cropCoords.y1, this.cropCoords.y2);
+            
+            if (this.dragMode.includes('e')) right += dx;
+            if (this.dragMode.includes('w')) left += dx;
+            if (this.dragMode.includes('s')) bottom += dy;
+            if (this.dragMode.includes('n')) top += dy;
+            
+            this.cropCoords = { x1: left, y1: top, x2: right, y2: bottom };
+        }
+        
+        this.lastMousePos = { x: mx, y: my };
+        this.drawCanvas();
+    }
+
+    onMouseUp(e) {
+        this.dragMode = null;
+    }
+
+    // --- Touch Events (Pinch Zoom) ---
+    getTouchDistance(touch1, touch2) {
+        const dx = touch1.clientX - touch2.clientX;
+        const dy = touch1.clientY - touch2.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    onTouchStart(e) {
+        if (e.touches.length === 2) {
+            // 2本指 = ピンチ操作開始
+            e.preventDefault();
+            this.isPinching = true;
+            this.lastPinchDistance = this.getTouchDistance(e.touches[0], e.touches[1]);
+            this.dragMode = null; // クロップモードをキャンセル
+        } else if (e.touches.length === 1 && !this.isPinching) {
+            // 1本指 = クロップ操作（マウスと同様）
+            const touch = e.touches[0];
+            const rect = this.canvas.getBoundingClientRect();
+            const mx = touch.clientX - rect.left;
+            const my = touch.clientY - rect.top;
+            
+            if (this.originalImage) {
+                const hit = this.getHitHandle(mx, my);
+                if (hit) {
+                    this.dragMode = hit;
+                } else if (this.cropCoords) {
+                    const z = this.zoomScale;
+                    const x1 = Math.min(this.cropCoords.x1, this.cropCoords.x2) * z;
+                    const y1 = Math.min(this.cropCoords.y1, this.cropCoords.y2) * z;
+                    const x2 = Math.max(this.cropCoords.x1, this.cropCoords.x2) * z;
+                    const y2 = Math.max(this.cropCoords.y1, this.cropCoords.y2) * z;
+                    
+                    if (mx >= x1 && mx <= x2 && my >= y1 && my <= y2) {
+                        this.dragMode = 'move';
+                    } else {
+                        const z = this.zoomScale;
+                        this.cropCoords = { x1: mx/z, y1: my/z, x2: mx/z, y2: my/z };
+                        this.dragMode = 'create';
+                    }
+                } else {
+                    const z = this.zoomScale;
+                    this.cropCoords = { x1: mx/z, y1: my/z, x2: mx/z, y2: my/z };
+                    this.dragMode = 'create';
+                }
+                
+                this.lastMousePos = { x: mx, y: my };
+                this.drawCanvas();
+            }
+        }
+    }
+
+    onTouchMove(e) {
+        if (e.touches.length === 2 && this.isPinching) {
+            // ピンチ操作中
+            e.preventDefault();
+            const currentDistance = this.getTouchDistance(e.touches[0], e.touches[1]);
+            
+            if (this.lastPinchDistance) {
+                const scale = currentDistance / this.lastPinchDistance;
+                this.zoomScale *= scale;
+                this.zoomScale = Math.max(0.1, Math.min(10, this.zoomScale)); // 0.1倍〜10倍に制限
+                
+                document.getElementById('lbl-zoom').textContent = `${Math.floor(this.zoomScale * 100)}%`;
+                this.drawCanvas();
+            }
+            
+            this.lastPinchDistance = currentDistance;
+        } else if (e.touches.length === 1 && this.dragMode && this.cropCoords) {
+            // 1本指でのクロップ操作
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = this.canvas.getBoundingClientRect();
+            const mx = touch.clientX - rect.left;
+            const my = touch.clientY - rect.top;
+            
+            const z = this.zoomScale;
+            const dx = (mx - this.lastMousePos.x) / z;
+            const dy = (my - this.lastMousePos.y) / z;
+            
+            if (this.dragMode === 'create') {
+                this.cropCoords.x2 = mx / z;
+                this.cropCoords.y2 = my / z;
+            } else if (this.dragMode === 'move') {
+                this.cropCoords.x1 += dx;
+                this.cropCoords.y1 += dy;
+                this.cropCoords.x2 += dx;
+                this.cropCoords.y2 += dy;
+            } else {
+                let left = Math.min(this.cropCoords.x1, this.cropCoords.x2);
+                let right = Math.max(this.cropCoords.x1, this.cropCoords.x2);
+                let top = Math.min(this.cropCoords.y1, this.cropCoords.y2);
+                let bottom = Math.max(this.cropCoords.y1, this.cropCoords.y2);
+                
+                if (this.dragMode.includes('e')) right += dx;
+                if (this.dragMode.includes('w')) left += dx;
+                if (this.dragMode.includes('s')) bottom += dy;
+                if (this.dragMode.includes('n')) top += dy;
+                
+                this.cropCoords = { x1: left, y1: top, x2: right, y2: bottom };
+            }
+            
+            this.lastMousePos = { x: mx, y: my };
+            this.drawCanvas();
+        }
+    }
+
+    onTouchEnd(e) {
+        if (e.touches.length < 2) {
+            this.isPinching = false;
+            this.lastPinchDistance = null;
+            
+            // ピンチ終了時に履歴保存
+            if (e.touches.length === 0) {
+                this.saveCurrentStateToHistory();
+                this.dragMode = null;
+            }
+        }
+    }
+
+    // --- Wheel Event (Trackpad Pinch) ---
+    onWheel(e) {
+        // Ctrl + Wheel = ピンチ操作（トラックパッド）
+        if (e.ctrlKey) {
+            e.preventDefault();
+            
+            // deltaYが負なら拡大、正なら縮小
+            const delta = -e.deltaY;
+            const scaleFactor = 1 + (delta * 0.01);
+            
+            this.zoomScale *= scaleFactor;
+            this.zoomScale = Math.max(0.1, Math.min(10, this.zoomScale));
+            
+            document.getElementById('lbl-zoom').textContent = `${Math.floor(this.zoomScale * 100)}%`;
+            this.drawCanvas();
+        }
+    }
+
+    cropImage() {
+        if (!this.originalImage || !this.cropCoords) return;
+        
+        const z = 1; // Image coords
+        let left = Math.min(this.cropCoords.x1, this.cropCoords.x2);
+        let top = Math.min(this.cropCoords.y1, this.cropCoords.y2);
+        let right = Math.max(this.cropCoords.x1, this.cropCoords.x2);
+        let bottom = Math.max(this.cropCoords.y1, this.cropCoords.y2);
+        
+        // Clamp
+        left = Math.max(0, Math.floor(left));
+        top = Math.max(0, Math.floor(top));
+        right = Math.min(this.originalImage.width, Math.floor(right));
+        bottom = Math.min(this.originalImage.height, Math.floor(bottom));
+        
+        if (right - left < 1 || bottom - top < 1) return;
+        
+        // ここでは履歴保存しない（画像更新後に保存する）
+        // this.saveCurrentStateToHistory();
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = right - left;
+        canvas.height = bottom - top;
+        canvas.getContext('2d').drawImage(this.originalImage, -left, -top);
+        
+        const newImg = new Image();
+        newImg.onload = () => {
+            this.originalImage = newImg;
+            this.cropCoords = null;
+            
+            // 画像更新後に履歴保存を行うことで、
+            // 「変更前の状態(B)」を履歴にプッシュし、「変更後の状態(C)」をcurrentStateにする
+            this.saveCurrentStateToHistory();
+            
+            this.updatePreview();
+        };
+        newImg.src = canvas.toDataURL();
+    }
+
+    async saveImage() {
+        if (!this.processedCanvas) return;
+        
+        const format = document.getElementById('save-format').value;
+        let ext = 'png';
+        if (format === 'image/jpeg') ext = 'jpg';
+        if (format === 'image/webp') ext = 'webp';
+
+        // File System Access API (Chrome/Edge/Opera)
+        if (window.showSaveFilePicker) {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: `pixel_art.${ext}`,
+                    types: [{
+                        description: 'Image File',
+                        accept: { [format]: [`.${ext}`] },
+                    }],
+                });
+                const writable = await handle.createWritable();
+                const blob = await new Promise(resolve => this.processedCanvas.toBlob(resolve, format));
+                await writable.write(blob);
+                await writable.close();
+                return;
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                console.error(err);
+                // Fallback to download link if error occurs (not AbortError)
+            }
+        }
+
+        // Fallback (Firefox/Safari)
+        const link = document.createElement('a');
+        link.download = `pixel_art.${ext}`;
+        link.href = this.processedCanvas.toDataURL(format);
+        link.click();
+    }
+}
+
+window.onload = () => new App();
+    </script>
+</body>
+</html>
